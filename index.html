@@ -421,7 +421,7 @@
       <h2 class="section-title">지난 방송 다시보기</h2>
       <div class="section-sub" id="episodeCountLabel">불러오는 중… (2026년 4월 이후 방송만 표시)</div>
     </div>
-    <div class="section-sub">재생목록: “[Full Live] 4 Your Busan” · BeFM 공식 유튜브</div>
+    <div class="section-sub">채널 업로드 중 “4 My Busan” 본편만 표시 · BeFM 공식 유튜브</div>
   </div>
 
   <div class="grid" id="grid">
@@ -441,7 +441,7 @@
     <div>
       <a href="https://www.youtube.com/@befm" target="_blank" rel="noopener">BeFM 유튜브 채널</a><br>
       <a href="https://befm.or.kr" target="_blank" rel="noopener">befm.or.kr 홈페이지</a><br>
-      <a href="https://www.youtube.com/playlist?list=PLvQQu0DUi753W5BnoBS8j3ud3sAPi_OKu" target="_blank" rel="noopener">4 Your Busan 재생목록 원본</a>
+      <a href="https://www.youtube.com/@befm/videos" target="_blank" rel="noopener">BeFM 채널 업로드 목록 원본</a>
     </div>
   </div>
 </footer>
@@ -477,7 +477,7 @@
     </div>
     <div class="field">
       <label for="playlistIdInput">재생목록 ID</label>
-      <input type="text" id="playlistIdInput" value="PLvQQu0DUi753W5BnoBS8j3ud3sAPi_OKu">
+      <input type="text" id="playlistIdInput" value="UUQu6uQEnCNKD8BeYmgoLEeA">
     </div>
     <div class="field">
       <label for="maxResultsInput">불러올 최대 회차 수</label>
@@ -508,7 +508,12 @@
    ========================================================================= */
 const CONFIG = {
   CHANNEL_HANDLE: '@befm',
-  PLAYLIST_ID: 'PLvQQu0DUi753W5BnoBS8j3ud3sAPi_OKu', // "[Full Live] 4 Your Busan" 공식 재생목록
+  // "[Full Live] 4 Your Busan"(PLvQQu0DUi753W5BnoBS8j3ud3sAPi_OKu) 재생목록은
+  // 2026년 상반기 개편으로 프로그램명이 "4 My Busan"으로 바뀐 뒤 2026-03-25 이후
+  // 더 이상 갱신되지 않음. 대신 항상 최신 상태인 채널 자동 업로드 피드를 사용하고
+  // TITLE_FILTER로 본편만 골라낸다.
+  PLAYLIST_ID: 'UUQu6uQEnCNKD8BeYmgoLEeA', // 채널(UCQu6uQEnCNKD8BeYmgoLEeA) 업로드 전체 피드
+  TITLE_FILTER: /4\s*(my|your)\s*busan/i,  // 쇼츠·뉴스 코너 등을 제외하고 본편만 표시
   MAX_RESULTS: 30,      // 초기에 불러올 회차 수
   PAGE_SIZE: 20,        // "더 보기" 클릭 시 추가로 불러올 개수
   COMMENTS_MAX: 20,     // 회차별 최대 댓글 수
@@ -687,26 +692,26 @@ async function loadVideos(initial){
     let collected = [];
     let pageToken = state.nextPageToken || undefined;
     const minDate = new Date(CONFIG.MIN_PUBLISHED_AT);
-    // 재생목록 정렬 순서를 알 수 없으므로, 필터 조건에 맞는 항목을 찾을 때까지
-    // 최대 6페이지(최대 300개)까지 더 가져와 봄(오래된 회차부터 나열된 경우 대비)
+    const matchesFilters = (it) => {
+      const pub = it.contentDetails?.videoPublishedAt || it.snippet?.publishedAt;
+      if(!pub || new Date(pub) < minDate) return false;
+      if(CONFIG.TITLE_FILTER && !CONFIG.TITLE_FILTER.test(it.snippet?.title || '')) return false;
+      return true;
+    };
+    // 업로드 피드는 최신순으로 오지만, 안전하게 필터 조건에 맞는 항목을 몇 개
+    // 찾을 때까지 최대 6페이지(최대 300개)까지 더 가져와 봄
     for(let i=0;i<6;i++){
       const data = await fetchPlaylistPage(pageToken);
       collected = collected.concat(data.items || []);
       pageToken = data.nextPageToken;
-      const hasMatch = collected.some(it => {
-        const pub = it.contentDetails?.videoPublishedAt || it.snippet?.publishedAt;
-        return pub && new Date(pub) >= minDate;
-      });
-      if(!pageToken || (hasMatch && i >= 1)) break;
+      const matchCount = collected.filter(matchesFilters).length;
+      if(!pageToken || (matchCount >= CONFIG.MAX_RESULTS && i >= 1)) break;
     }
     state.nextPageToken = pageToken || null;
 
     const mapped = collected
       .filter(it => it.snippet && it.snippet.resourceId && it.snippet.resourceId.videoId)
-      .filter(it => {
-        const pub = it.contentDetails?.videoPublishedAt || it.snippet.publishedAt;
-        return pub && new Date(pub) >= minDate;
-      })
+      .filter(matchesFilters)
       .map(it => ({
         id: it.snippet.resourceId.videoId,
         title: it.snippet.title,
